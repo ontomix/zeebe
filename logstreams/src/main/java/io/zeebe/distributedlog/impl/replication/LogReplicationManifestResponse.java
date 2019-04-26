@@ -1,7 +1,7 @@
 package io.zeebe.distributedlog.impl.replication;
 
-import java.util.List;
+import java.util.Collection;
 
 public class LogReplicationManifestResponse {
-  public List<String> files;
+  public Collection<Integer> segments;
 }

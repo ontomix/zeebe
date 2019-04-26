@@ -24,6 +24,7 @@ import static io.zeebe.logstreams.impl.log.fs.FsLogSegment.NO_DATA;
 import static io.zeebe.logstreams.impl.log.fs.FsLogSegmentDescriptor.METADATA_LENGTH;
 
 import io.zeebe.logstreams.impl.Loggers;
+import io.zeebe.logstreams.spi.LogSegment;
 import io.zeebe.logstreams.spi.LogStorage;
 import io.zeebe.logstreams.spi.ReadResultProcessor;
 import io.zeebe.util.FileUtil;
@@ -375,5 +376,15 @@ public class FsLogStorage implements LogStorage {
   @Override
   public boolean isClosed() {
     return state == STATE_CLOSED;
+  }
+
+  @Override
+  public LogSegment[] getSegments() {
+    return logSegments.segments;
+  }
+
+  @Override
+  public LogSegment getSegment(int id) {
+    return logSegments.getSegment(id);
   }
 }

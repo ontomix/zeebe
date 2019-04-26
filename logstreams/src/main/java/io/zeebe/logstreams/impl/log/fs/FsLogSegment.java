@@ -21,6 +21,7 @@ import static io.zeebe.logstreams.impl.log.fs.FsLogSegmentDescriptor.SEGMENT_ID_
 import static io.zeebe.logstreams.impl.log.fs.FsLogSegmentDescriptor.SEGMENT_SIZE_OFFSET;
 
 import io.zeebe.logstreams.impl.Loggers;
+import io.zeebe.logstreams.spi.LogSegment;
 import io.zeebe.util.FileUtil;
 import java.io.File;
 import java.io.IOException;
@@ -33,7 +34,7 @@ import org.agrona.LangUtil;
 import org.agrona.concurrent.UnsafeBuffer;
 import org.slf4j.Logger;
 
-public class FsLogSegment {
+public class FsLogSegment implements LogSegment {
   public static final Logger LOG = Loggers.LOGSTREAMS_LOGGER;
 
   public static final short INVALID_ADDR = -1;
@@ -225,6 +226,7 @@ public class FsLogSegment {
    * @param fileOffset the offset in the file to read from
    * @return operation result
    */
+  @Override
   public int readBytes(ByteBuffer readBuffer, int fileOffset) {
     final int limit = getSizeVolatile();
     final int bufferOffset = readBuffer.position();
@@ -278,5 +280,15 @@ public class FsLogSegment {
     }
 
     openSegment(false);
+  }
+
+  @Override
+  public int id() {
+    return getSegmentId();
+  }
+
+  @Override
+  public long size() {
+    return getSize();
   }
 }

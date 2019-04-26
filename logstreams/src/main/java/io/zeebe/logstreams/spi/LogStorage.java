@@ -153,4 +153,8 @@ public interface LogStorage {
    * @throws Exception if fails to flush all blocks
    */
   void flush() throws Exception;
+
+  LogSegment[] getSegments();
+
+  LogSegment getSegment(int id);
 }

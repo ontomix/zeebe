@@ -1,5 +1,5 @@
 package io.zeebe.distributedlog.impl.replication;
 
-public class LogReplicationFileResponse {
+public class LogReplicationSegmentResponse {
   public byte[] data;
 }
