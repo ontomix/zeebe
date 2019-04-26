@@ -1,9 +1,26 @@
+/*
+ * Copyright © 2017 camunda services GmbH (info@camunda.com)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.zeebe.distributedlog.impl;
 
 import io.atomix.cluster.MemberId;
 import io.atomix.core.Atomix;
+import io.atomix.utils.serializer.Serializer;
 import io.zeebe.distributedlog.impl.replication.LogReplicationManifestRequest;
 import io.zeebe.distributedlog.impl.replication.LogReplicationManifestResponse;
+import io.zeebe.distributedlog.impl.replication.LogReplicationNameSpace;
 import io.zeebe.distributedlog.impl.replication.LogReplicationSegmentRequest;
 import io.zeebe.distributedlog.impl.replication.LogReplicationSegmentResponse;
 import io.zeebe.logstreams.spi.LogStorage;
@@ -19,11 +36,12 @@ public class LogstreamReplicator implements Service<Void> {
   private Atomix atomix;
   private final int partitionId;
 
+  private final Serializer serializer = Serializer.using(LogReplicationNameSpace.LOG_NAME_SPACE);
+
   private final Injector<Atomix> atomixInjector = new Injector<>();
   private final LogStorage logStorage;
 
-  public LogstreamReplicator(MemberId leader, int partitionId,
-    LogStorage logStorage) {
+  public LogstreamReplicator(MemberId leader, int partitionId, LogStorage logStorage) {
     this.leader = leader;
     this.partitionId = partitionId;
     this.logStorage = logStorage;
@@ -36,7 +54,7 @@ public class LogstreamReplicator implements Service<Void> {
   @Override
   public void start(ServiceStartContext startContext) {
     atomix = atomixInjector.getValue();
-    CompletableActorFuture<Void> startFuture = new CompletableActorFuture<>();
+    final CompletableActorFuture<Void> startFuture = new CompletableActorFuture<>();
     startContext.async(startFuture);
     sendManifestRequest()
         .whenComplete(
@@ -54,7 +72,11 @@ public class LogstreamReplicator implements Service<Void> {
     return atomix
         .getCommunicationService()
         .send(
-            "log.replication.manifest." + partitionId, new LogReplicationManifestRequest(), leader);
+            "log.replication.manifest." + partitionId,
+            new LogReplicationManifestRequest(),
+            serializer::encode,
+            serializer::decode,
+            leader);
   }
 
   private void handleManifestResponse(LogReplicationManifestResponse manifest) {
@@ -72,7 +94,12 @@ public class LogstreamReplicator implements Service<Void> {
     request.id = segmentId;
     return atomix
         .getCommunicationService()
-        .send("log.replication.file." + partitionId, request, leader);
+        .send(
+            "log.replication.file." + partitionId,
+            request,
+            serializer::encode,
+            serializer::decode,
+            leader);
   }
 
   private void handleReplicationFileResponse(LogReplicationSegmentResponse response) {

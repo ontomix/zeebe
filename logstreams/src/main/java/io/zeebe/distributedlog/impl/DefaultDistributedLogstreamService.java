@@ -233,13 +233,24 @@ public class DefaultDistributedLogstreamService
   private void tryRestore() {
     logStorage.deleteAll();
 
-    MemberId memberId = raftContext.getLeader().memberId();
-    LogstreamReplicator replicator = new LogstreamReplicator(memberId, partitionId, logStorage);
+    final MemberId memberId = raftContext.getLeader().memberId();
+    final LogstreamReplicator replicator =
+        new LogstreamReplicator(memberId, partitionId, logStorage);
     serviceContainer
-        .createService(ServiceName.newServiceName("log.replication.requester" + partitionId, Void.class), replicator)
-        .dependency(ServiceName.newServiceName("cluster.base.atomix", Atomix.class))
+        .createService(
+            ServiceName.newServiceName("log.replication.requester" + partitionId, Void.class),
+            replicator)
+        .dependency(
+            ServiceName.newServiceName("cluster.base.atomix", Atomix.class),
+            replicator.getAtomixInjector())
         .install()
         .join();
+
+    final BufferedLogStreamReader reader = new BufferedLogStreamReader(logStream);
+    reader.seekToLastEvent();
+    lastPosition = reader.getPosition(); // position of last event which is committed
+
+    LOG.info("Recovered. new lastPosition is {}", lastPosition);
   }
 
   @Override
