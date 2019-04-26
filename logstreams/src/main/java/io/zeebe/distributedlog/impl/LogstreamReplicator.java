@@ -27,14 +27,18 @@ import io.zeebe.logstreams.spi.LogStorage;
 import io.zeebe.servicecontainer.Injector;
 import io.zeebe.servicecontainer.Service;
 import io.zeebe.servicecontainer.ServiceStartContext;
+import io.zeebe.util.ZbLogger;
 import io.zeebe.util.sched.future.CompletableActorFuture;
 import java.nio.ByteBuffer;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 
 public class LogstreamReplicator implements Service<Void> {
   private MemberId leader;
   private Atomix atomix;
   private final int partitionId;
+
+  private static final ZbLogger LOG = new ZbLogger(LogstreamReplicator.class);
 
   private final Serializer serializer = Serializer.using(LogReplicationNameSpace.LOG_NAME_SPACE);
 
@@ -83,7 +87,11 @@ public class LogstreamReplicator implements Service<Void> {
     manifest.segments.forEach(
         file ->
             sendReplicationFileRequest(file)
-                .whenComplete((r, e) -> handleReplicationFileResponse(r))
+                .whenComplete(
+                    (r, e) -> {
+                      LOG.info("Received segment {}, error {}", file, e);
+                      handleReplicationFileResponse(r);
+                    })
                 .join());
   }
 
@@ -92,6 +100,7 @@ public class LogstreamReplicator implements Service<Void> {
 
     final LogReplicationSegmentRequest request = new LogReplicationSegmentRequest();
     request.id = segmentId;
+    LOG.info("Sending request for segmentId {} to node {}", segmentId, leader);
     return atomix
         .getCommunicationService()
         .send(
@@ -99,12 +108,20 @@ public class LogstreamReplicator implements Service<Void> {
             request,
             serializer::encode,
             serializer::decode,
-            leader);
+            leader,
+            Duration.ofSeconds(60));
   }
 
   private void handleReplicationFileResponse(LogReplicationSegmentResponse response) {
     // write to files or logstorage
-    logStorage.append(ByteBuffer.wrap(response.data));
+
+    final long append = logStorage.append(ByteBuffer.wrap(response.data));
+    if(append > 0) {
+      LOG.info("Append success");
+    }
+    else {
+      LOG.info("Append failed");
+    }
   }
 
   @Override

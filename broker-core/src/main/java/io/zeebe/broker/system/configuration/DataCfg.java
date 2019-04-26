@@ -27,7 +27,7 @@ public class DataCfg implements ConfigurationEntry {
   // Hint: do not use Collections.singletonList as this does not support replaceAll
   private List<String> directories = Arrays.asList(DEFAULT_DIRECTORY);
 
-  private String defaultLogSegmentSize = "512M";
+  private String defaultLogSegmentSize = "64M";
 
   private String indexBlockSize = "4M";
 
