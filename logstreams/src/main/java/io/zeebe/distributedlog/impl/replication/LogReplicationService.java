@@ -18,7 +18,6 @@ package io.zeebe.distributedlog.impl.replication;
 import io.atomix.cluster.messaging.ClusterCommunicationService;
 import io.atomix.core.Atomix;
 import io.atomix.utils.serializer.Serializer;
-import io.zeebe.logstreams.impl.log.fs.FsLogSegment;
 import io.zeebe.logstreams.impl.log.fs.FsLogStorage;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.spi.LogSegment;
@@ -54,11 +53,15 @@ public class LogReplicationService implements Service<Void> {
     communicationService = atomixInjector.getValue().getCommunicationService();
 
     communicationService.subscribe(
-        "log.replication.manifest." + logStream.getPartitionId(), serializer::decode, this::handleManifestRequest,
-      (Function<LogReplicationManifestResponse, byte[]>) serializer::encode);
+        "log.replication.manifest." + logStream.getPartitionId(),
+        serializer::decode,
+        this::handleManifestRequest,
+        (Function<LogReplicationManifestResponse, byte[]>) serializer::encode);
     communicationService.subscribe(
-        "log.replication.file." + logStream.getPartitionId(), serializer::decode, this::handleFileRequest,
-      (Function<LogReplicationSegmentResponse, byte[]>) serializer::encode);
+        "log.replication.file." + logStream.getPartitionId(),
+        serializer::decode,
+        this::handleFileRequest,
+        (Function<LogReplicationSegmentResponse, byte[]>) serializer::encode);
   }
 
   private CompletableFuture<LogReplicationManifestResponse> handleManifestRequest(
@@ -73,17 +76,15 @@ public class LogReplicationService implements Service<Void> {
   private CompletableFuture<LogReplicationSegmentResponse> handleFileRequest(
       LogReplicationSegmentRequest request) {
     final LogSegment segment = logStorage.getSegment(request.id);
-    final ByteBuffer buffer = ByteBuffer.allocate(1024 * 1024);
     final ExpandableArrayBuffer dest = new ExpandableArrayBuffer();
     final LogReplicationSegmentResponse response = new LogReplicationSegmentResponse();
 
     int offset = 0;
-    int bytesRead = segment.readBytes(buffer, offset);
-
-    while (bytesRead != FsLogSegment.END_OF_SEGMENT && bytesRead != FsLogSegment.NO_DATA) {
+    int bytesRead =
+        segment.readBytes(ByteBuffer.wrap(dest.byteArray(), offset, 1024 * 1024), offset);
+    while (bytesRead > 0) {
       offset += bytesRead;
-      dest.putBytes(offset, buffer, bytesRead);
-      bytesRead = segment.readBytes(buffer, offset);
+      bytesRead = segment.readBytes(ByteBuffer.wrap(dest.byteArray(), offset, 1024 * 1024), offset);
     }
 
     response.data = dest.byteArray();
