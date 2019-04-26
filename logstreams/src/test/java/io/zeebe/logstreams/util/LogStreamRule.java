@@ -29,6 +29,7 @@ import io.zeebe.distributedlog.impl.DistributedLogstreamServiceConfig;
 import io.zeebe.logstreams.LogStreams;
 import io.zeebe.logstreams.impl.LogStreamBuilder;
 import io.zeebe.logstreams.log.LogStream;
+import io.zeebe.logstreams.spi.LogStorage;
 import io.zeebe.logstreams.state.StateStorage;
 import io.zeebe.servicecontainer.ServiceContainer;
 import io.zeebe.servicecontainer.impl.ServiceContainerImpl;
@@ -197,6 +198,10 @@ public class LogStreamRule extends ExternalResource {
     logStream = builder.build().join();
     openDistributedLog();
     logStream.openAppender().join();
+  }
+
+  public LogStorage getLogStorage() {
+    return logStream.getLogStorage();
   }
 
   public LogStream getLogStream() {

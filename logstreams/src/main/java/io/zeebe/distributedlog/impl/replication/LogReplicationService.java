@@ -15,12 +15,14 @@
  */
 package io.zeebe.distributedlog.impl.replication;
 
+import static io.zeebe.logstreams.impl.log.fs.FsLogSegmentDescriptor.METADATA_LENGTH;
+
 import io.atomix.cluster.messaging.ClusterCommunicationService;
 import io.atomix.core.Atomix;
 import io.atomix.utils.serializer.Serializer;
-import io.zeebe.logstreams.impl.log.fs.FsLogStorage;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.spi.LogSegment;
+import io.zeebe.logstreams.spi.LogStorage;
 import io.zeebe.servicecontainer.Injector;
 import io.zeebe.servicecontainer.Service;
 import io.zeebe.servicecontainer.ServiceStartContext;
@@ -38,7 +40,7 @@ public class LogReplicationService implements Service<Void> {
   private final Serializer serializer = Serializer.using(LogReplicationNameSpace.LOG_NAME_SPACE);
 
   private LogStream logStream;
-  private FsLogStorage logStorage;
+  public LogStorage logStorage;
   private ClusterCommunicationService communicationService;
 
   @Override
@@ -49,7 +51,7 @@ public class LogReplicationService implements Service<Void> {
   @Override
   public void start(ServiceStartContext startContext) {
     logStream = logStreamInjector.getValue();
-    logStorage = (FsLogStorage) logStream.getLogStorage();
+    logStorage = logStream.getLogStorage();
     communicationService = atomixInjector.getValue().getCommunicationService();
 
     communicationService.subscribe(
@@ -64,7 +66,7 @@ public class LogReplicationService implements Service<Void> {
         (Function<LogReplicationSegmentResponse, byte[]>) serializer::encode);
   }
 
-  private CompletableFuture<LogReplicationManifestResponse> handleManifestRequest(
+  public CompletableFuture<LogReplicationManifestResponse> handleManifestRequest(
       LogReplicationManifestRequest request) {
     final LogReplicationManifestResponse response = new LogReplicationManifestResponse();
     final LogSegment[] segments = logStorage.getSegments();
@@ -73,18 +75,22 @@ public class LogReplicationService implements Service<Void> {
     return CompletableFuture.completedFuture(response);
   }
 
-  private CompletableFuture<LogReplicationSegmentResponse> handleFileRequest(
+  public CompletableFuture<LogReplicationSegmentResponse> handleFileRequest(
       LogReplicationSegmentRequest request) {
     final LogSegment segment = logStorage.getSegment(request.id);
-    final ExpandableArrayBuffer dest = new ExpandableArrayBuffer();
+    final ExpandableArrayBuffer dest = new ExpandableArrayBuffer(1024 * 1024);
     final LogReplicationSegmentResponse response = new LogReplicationSegmentResponse();
 
     int offset = 0;
     int bytesRead =
-        segment.readBytes(ByteBuffer.wrap(dest.byteArray(), offset, 1024 * 1024), offset);
+        segment.readBytes(
+            ByteBuffer.wrap(dest.byteArray(), offset, 1024 * 1024), METADATA_LENGTH + offset);
     while (bytesRead > 0) {
       offset += bytesRead;
-      bytesRead = segment.readBytes(ByteBuffer.wrap(dest.byteArray(), offset, 1024 * 1024), offset);
+      dest.checkLimit(offset + (1024 * 1024));
+      bytesRead =
+          segment.readBytes(
+              ByteBuffer.wrap(dest.byteArray(), offset, 1024 * 1024), METADATA_LENGTH + offset);
     }
 
     response.data = dest.byteArray();
