@@ -59,6 +59,7 @@ public class DefaultDistributedLogstreamService
 
   private ServiceContainer serviceContainer;
   private RaftContext raftContext;
+  private int partitionId;
 
   public DefaultDistributedLogstreamService(DistributedLogstreamServiceConfig config) {
     super(DistributedLogstreamType.instance(), DistributedLogstreamClient.class);
@@ -111,7 +112,7 @@ public class DefaultDistributedLogstreamService
   private void createLogStream(String logServiceName) {
     // A hack to get partitionId from the name
     final String[] splitted = logServiceName.split("-");
-    final int partitionId = Integer.parseInt(splitted[splitted.length - 1]);
+    partitionId = Integer.parseInt(splitted[splitted.length - 1]);
 
     final String localmemberId = getLocalMemberId().id();
     serviceContainer = LogstreamConfig.getServiceContainer(localmemberId);
@@ -222,16 +223,18 @@ public class DefaultDistributedLogstreamService
           lastPosition,
           backupPosition);
 
-      tryToGetSegmentsFromLeader();
+      tryRestore();
     }
 
     currentLeader = backupInput.readString();
     currentLeaderTerm = backupInput.readLong();
   }
 
-  private void tryToGetSegmentsFromLeader() {
+  private void tryRestore() {
+    logStorage.deleteAll();
+
     MemberId memberId = raftContext.getLeader().memberId();
-    LogstreamReplicator replicator = new LogstreamReplicator(memberId);
+    LogstreamReplicator replicator = new LogstreamReplicator(memberId, partitionId, logStorage);
     serviceContainer
         .createService(ServiceName.newServiceName("replicate-logstreams", Void.class), replicator)
         .dependency(ServiceName.newServiceName("cluster.base.atomix", Atomix.class))

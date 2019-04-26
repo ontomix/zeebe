@@ -71,6 +71,8 @@ public interface LogStorage {
    */
   void delete(long address);
 
+  void deleteAll();
+
   /**
    * Naive implementation of the {@link #read(ByteBuffer, long, ReadResultProcessor)} method. Does
    * not process the bytes which are read.

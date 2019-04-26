@@ -8,4 +8,6 @@ public interface LogSegment {
   int readBytes(ByteBuffer readBuffer, int offset);
 
   long size();
+
+  void delete();
 }

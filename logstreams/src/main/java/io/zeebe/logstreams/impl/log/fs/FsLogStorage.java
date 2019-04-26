@@ -154,6 +154,11 @@ public class FsLogStorage implements LogStorage {
   }
 
   @Override
+  public void deleteAll() {
+    logSegments.removeSegmentsUntil(logSegments.getLastSegmentId() + 1);
+  }
+
+  @Override
   public long read(final ByteBuffer readBuffer, final long addr) {
     return read(readBuffer, addr, defaultReadResultProcessor);
   }
