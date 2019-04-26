@@ -76,7 +76,7 @@ public class LogstreamReplicator implements Service<Void> {
   }
 
   private void handleReplicationFileResponse(LogReplicationSegmentResponse response) {
-    // write to files or logstorageDefaultDistributedLogstreamService
+    // write to files or logstorage
     logStorage.append(ByteBuffer.wrap(response.data));
   }
 

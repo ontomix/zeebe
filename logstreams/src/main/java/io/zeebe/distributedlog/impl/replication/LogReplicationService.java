@@ -68,4 +68,12 @@ public class LogReplicationService implements Service<Void> {
     response.data = dest.byteArray();
     return CompletableFuture.completedFuture(response);
   }
+
+  public Injector<Atomix> getAtomixInjector() {
+    return atomixInjector;
+  }
+
+  public Injector<LogStream> getLogStreamInjector() {
+    return logStreamInjector;
+  }
 }

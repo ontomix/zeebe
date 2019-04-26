@@ -236,7 +236,7 @@ public class DefaultDistributedLogstreamService
     MemberId memberId = raftContext.getLeader().memberId();
     LogstreamReplicator replicator = new LogstreamReplicator(memberId, partitionId, logStorage);
     serviceContainer
-        .createService(ServiceName.newServiceName("replicate-logstreams", Void.class), replicator)
+        .createService(ServiceName.newServiceName("log.replication.requester" + partitionId, Void.class), replicator)
         .dependency(ServiceName.newServiceName("cluster.base.atomix", Atomix.class))
         .install()
         .join();
