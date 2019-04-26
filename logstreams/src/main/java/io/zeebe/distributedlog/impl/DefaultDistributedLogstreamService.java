@@ -15,6 +15,8 @@
  */
 package io.zeebe.distributedlog.impl;
 
+import io.atomix.cluster.MemberId;
+import io.atomix.core.Atomix;
 import io.atomix.primitive.service.AbstractPrimitiveService;
 import io.atomix.primitive.service.BackupInput;
 import io.atomix.primitive.service.BackupOutput;
@@ -33,6 +35,7 @@ import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.spi.LogStorage;
 import io.zeebe.logstreams.state.StateStorage;
 import io.zeebe.servicecontainer.ServiceContainer;
+import io.zeebe.servicecontainer.ServiceName;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
@@ -55,6 +58,7 @@ public class DefaultDistributedLogstreamService
   private String logName;
 
   private ServiceContainer serviceContainer;
+  private RaftContext raftContext;
 
   public DefaultDistributedLogstreamService(DistributedLogstreamServiceConfig config) {
     super(DistributedLogstreamType.instance(), DistributedLogstreamClient.class);
@@ -92,7 +96,7 @@ public class DefaultDistributedLogstreamService
       final RaftServiceContext raftServiceContext = (RaftServiceContext) context.get(executor);
       final Field raft = RaftServiceContext.class.getDeclaredField("raft");
       raft.setAccessible(true);
-      final RaftContext raftContext = (RaftContext) raft.get(raftServiceContext);
+      raftContext = (RaftContext) raft.get(raftServiceContext);
       name = raftContext.getName();
       raft.setAccessible(false);
       context.setAccessible(false);
@@ -217,9 +221,22 @@ public class DefaultDistributedLogstreamService
           "There are missing events in the logstream. last event in logstream is {}. backup position is {}.",
           lastPosition,
           backupPosition);
+
+      tryToGetSegmentsFromLeader();
     }
+
     currentLeader = backupInput.readString();
     currentLeaderTerm = backupInput.readLong();
+  }
+
+  private void tryToGetSegmentsFromLeader() {
+    MemberId memberId = raftContext.getLeader().memberId();
+    LogstreamReplicator replicator = new LogstreamReplicator(memberId);
+    serviceContainer
+        .createService(ServiceName.newServiceName("replicate-logstreams", Void.class), replicator)
+        .dependency(ServiceName.newServiceName("cluster.base.atomix", Atomix.class))
+        .install()
+        .join();
   }
 
   @Override
