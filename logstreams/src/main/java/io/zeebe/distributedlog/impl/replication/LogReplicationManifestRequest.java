@@ -15,4 +15,7 @@
  */
 package io.zeebe.distributedlog.impl.replication;
 
-public class LogReplicationManifestRequest {}
+public class LogReplicationManifestRequest {
+  long startEventPosition; // exclusive
+  long endEventPosition; // inclusive
+}

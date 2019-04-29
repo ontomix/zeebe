@@ -18,11 +18,10 @@ package io.zeebe.distributedlog.impl;
 import io.atomix.cluster.MemberId;
 import io.atomix.core.Atomix;
 import io.atomix.utils.serializer.Serializer;
-import io.zeebe.distributedlog.impl.replication.LogReplicationManifestRequest;
-import io.zeebe.distributedlog.impl.replication.LogReplicationManifestResponse;
 import io.zeebe.distributedlog.impl.replication.LogReplicationNameSpace;
-import io.zeebe.distributedlog.impl.replication.LogReplicationSegmentRequest;
-import io.zeebe.distributedlog.impl.replication.LogReplicationSegmentResponse;
+import io.zeebe.distributedlog.impl.replication.LogReplicationRequest;
+import io.zeebe.distributedlog.impl.replication.LogReplicationResponse;
+import io.zeebe.logstreams.impl.LogEntryDescriptor;
 import io.zeebe.logstreams.spi.LogStorage;
 import io.zeebe.servicecontainer.Injector;
 import io.zeebe.servicecontainer.Service;
@@ -30,13 +29,17 @@ import io.zeebe.servicecontainer.ServiceStartContext;
 import io.zeebe.util.ZbLogger;
 import io.zeebe.util.sched.future.CompletableActorFuture;
 import java.nio.ByteBuffer;
-import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import org.agrona.DirectBuffer;
+import org.agrona.concurrent.UnsafeBuffer;
 
 public class LogstreamReplicator implements Service<Void> {
   private MemberId leader;
   private Atomix atomix;
   private final int partitionId;
+  private final long toPosition;
+  private final long fromPosition;
+  private final CompletableActorFuture<Void> startFuture = new CompletableActorFuture<>();
 
   private static final ZbLogger LOG = new ZbLogger(LogstreamReplicator.class);
 
@@ -45,10 +48,13 @@ public class LogstreamReplicator implements Service<Void> {
   private final Injector<Atomix> atomixInjector = new Injector<>();
   private final LogStorage logStorage;
 
-  public LogstreamReplicator(MemberId leader, int partitionId, LogStorage logStorage) {
+  public LogstreamReplicator(
+      MemberId leader, int partitionId, LogStorage logStorage, long fromPosition, long toPosition) {
     this.leader = leader;
     this.partitionId = partitionId;
     this.logStorage = logStorage;
+    this.fromPosition = fromPosition;
+    this.toPosition = toPosition;
   }
 
   public Injector<Atomix> getAtomixInjector() {
@@ -58,70 +64,53 @@ public class LogstreamReplicator implements Service<Void> {
   @Override
   public void start(ServiceStartContext startContext) {
     atomix = atomixInjector.getValue();
-    final CompletableActorFuture<Void> startFuture = new CompletableActorFuture<>();
     startContext.async(startFuture);
-    sendManifestRequest()
-        .whenComplete(
-            (r, e) -> {
-              if (e == null) {
-                handleManifestResponse(r);
-                startFuture.complete(null);
-              } else {
-                startFuture.completeExceptionally(e);
-              }
-            });
+    sendRequest(fromPosition, toPosition).whenComplete(this::handleResponse);
   }
 
-  private CompletableFuture<LogReplicationManifestResponse> sendManifestRequest() {
+  public void handleResponse(LogReplicationResponse response, Throwable error) {
+    final DirectBuffer buffer = new UnsafeBuffer(response.data);
+    int offset = 0;
+    long position = -1;
+
+    while (position < response.fromPosition) {
+      position = LogEntryDescriptor.getPosition(buffer, offset);
+      offset += LogEntryDescriptor.getFragmentLength(buffer, offset);
+    }
+    final ByteBuffer data = ByteBuffer.wrap(response.data, offset, response.data.length - offset);
+
+    final long append = logStorage.append(data);
+    if (append >= 0) {
+      LOG.info(
+          "Appended {} (skipping position {})",
+          LogEntryDescriptor.getPosition(buffer, offset),
+          response.fromPosition);
+      if (response.toPosition < toPosition) {
+        LOG.info("Requesting again {} - {}", response.toPosition, toPosition);
+        // sendRequest(response.toPosition, toPosition).whenComplete(this::handleResponse);
+      } else {
+        LOG.info("Requested all of {} - {}", fromPosition, response.toPosition);
+        // startFuture.complete(null);
+      }
+    } else {
+      LOG.info("Append failed , returned {}", append, error);
+      // startFuture.completeExceptionally(error);
+    }
+  }
+
+  private CompletableFuture<LogReplicationResponse> sendRequest(
+      long fromPosition, long toPosition) {
+    final LogReplicationRequest request = new LogReplicationRequest();
+    request.fromPosition = fromPosition;
+    request.toPosition = toPosition;
     return atomix
         .getCommunicationService()
         .send(
-            "log.replication.manifest." + partitionId,
-            new LogReplicationManifestRequest(),
-            serializer::encode,
-            serializer::decode,
-            leader);
-  }
-
-  private void handleManifestResponse(LogReplicationManifestResponse manifest) {
-    manifest.segments.forEach(
-        file ->
-            sendReplicationFileRequest(file)
-                .whenComplete(
-                    (r, e) -> {
-                      LOG.info("Received segment {}, error {}", file, e);
-                      handleReplicationFileResponse(r);
-                    })
-                .join());
-  }
-
-  private CompletableFuture<LogReplicationSegmentResponse> sendReplicationFileRequest(
-      int segmentId) {
-
-    final LogReplicationSegmentRequest request = new LogReplicationSegmentRequest();
-    request.id = segmentId;
-    LOG.info("Sending request for segmentId {} to node {}", segmentId, leader);
-    return atomix
-        .getCommunicationService()
-        .send(
-            "log.replication.file." + partitionId,
+            "log.replication." + partitionId,
             request,
             serializer::encode,
             serializer::decode,
-            leader,
-            Duration.ofSeconds(60));
-  }
-
-  private void handleReplicationFileResponse(LogReplicationSegmentResponse response) {
-    // write to files or logstorage
-
-    final long append = logStorage.append(ByteBuffer.wrap(response.data));
-    if(append >= 0) {
-      LOG.info("Append success");
-    }
-    else {
-      LOG.info("Append failed , returned {}", append);
-    }
+            leader);
   }
 
   @Override

@@ -18,5 +18,5 @@ package io.zeebe.distributedlog.impl.replication;
 import java.util.List;
 
 public class LogReplicationManifestResponse {
-  public List<Integer> segments;
+  public List<LogReplicationManifestSegment> segments;
 }

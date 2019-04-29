@@ -17,4 +17,6 @@ package io.zeebe.distributedlog.impl.replication;
 
 public class LogReplicationSegmentResponse {
   public byte[] data;
+  public long offset;
+  public String checksum;
 }

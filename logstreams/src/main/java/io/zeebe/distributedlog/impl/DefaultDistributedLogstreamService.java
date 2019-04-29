@@ -223,24 +223,24 @@ public class DefaultDistributedLogstreamService
           lastPosition,
           backupPosition);
 
-      tryRestore();
+      tryRestore(lastPosition, backupPosition);
     }
 
     currentLeader = backupInput.readString();
     currentLeaderTerm = backupInput.readLong();
   }
 
-  private void tryRestore() {
+  private void tryRestore(long fromPosition, long toPosition) {
     long startTime = System.currentTimeMillis();
     logStorage.deleteAll();
 
     // TODO: Check if the following is needed
-//    logStorage.close();
-//    logStorage.open();
+    //    logStorage.close();
+    //    logStorage.open();
 
     final MemberId memberId = raftContext.getLeader().memberId();
     final LogstreamReplicator replicator =
-        new LogstreamReplicator(memberId, partitionId, logStorage);
+        new LogstreamReplicator(memberId, partitionId, logStorage, fromPosition, toPosition);
     serviceContainer
         .createService(
             ServiceName.newServiceName("log.replication.requester" + partitionId, Void.class),

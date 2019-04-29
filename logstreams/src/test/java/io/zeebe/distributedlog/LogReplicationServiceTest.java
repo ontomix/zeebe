@@ -15,24 +15,29 @@
  */
 package io.zeebe.distributedlog;
 
-import static org.assertj.core.api.Java6Assertions.assertThat;
-
+import io.zeebe.distributedlog.impl.LogstreamReplicator;
+import io.zeebe.distributedlog.impl.replication.LogReplicationRequest;
 import io.zeebe.distributedlog.impl.replication.LogReplicationSegmentRequest;
 import io.zeebe.distributedlog.impl.replication.LogReplicationService;
 import io.zeebe.logstreams.util.LogStreamRule;
+import io.zeebe.logstreams.util.LogStreamWriterRule;
+import io.zeebe.test.util.MsgPackUtil;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ThreadLocalRandom;
+import org.agrona.DirectBuffer;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.RuleChain;
 import org.junit.rules.TemporaryFolder;
-import org.slf4j.LoggerFactory;
 
 public class LogReplicationServiceTest {
   public TemporaryFolder temporaryFolder = new TemporaryFolder();
   public LogStreamRule logStream = new LogStreamRule(temporaryFolder);
+  public LogStreamWriterRule logStreamWriter = new LogStreamWriterRule(logStream);
 
-  @Rule public RuleChain ruleChain = RuleChain.outerRule(temporaryFolder).around(logStream);
+  @Rule
+  public RuleChain ruleChain =
+      RuleChain.outerRule(temporaryFolder).around(logStream).around(logStreamWriter);
 
   @Test
   public void shouldReturnFile() {
@@ -40,17 +45,33 @@ public class LogReplicationServiceTest {
     ThreadLocalRandom.current().nextBytes(buffer);
     final LogReplicationService service = new LogReplicationService();
     logStream.getLogStorage().append(ByteBuffer.wrap(buffer));
-    service.logStorage = logStream.getLogStorage();
     final LogReplicationSegmentRequest request = new LogReplicationSegmentRequest();
-    request.id = 0;
+  }
 
-    service
-        .handleFileRequest(request)
-        .thenAccept(
-            r -> {
-              assertThat(buffer.length).isEqualTo(r.data.length);
-              assertThat(buffer).isEqualTo(r.data);
-              LoggerFactory.getLogger("test").info("Test {}", r);
-            }).join();
+  @Test
+  public void shouldReceiveChunk() {
+    final LogReplicationService service = new LogReplicationService();
+    final DirectBuffer event = MsgPackUtil.asMsgPack("{'a':1}");
+    final LogReplicationRequest request = new LogReplicationRequest();
+    request.fromPosition = -1;
+    request.toPosition = -1;
+
+    long lastPosition = -1;
+    for (int i = 1; i <= 100; i++) {
+      final int key = i;
+      lastPosition = logStreamWriter.writeEvent(w -> w.value(event).key(key));
+
+      if (request.fromPosition < 0) {
+        request.fromPosition = lastPosition;
+      }
+      request.toPosition = lastPosition;
+    }
+
+    request.fromPosition = 4294970176L;
+    final LogstreamReplicator replicator =
+        new LogstreamReplicator(
+            null, 0, logStream.getLogStorage(), request.fromPosition, request.toPosition);
+    service.setLogStream(logStream.getLogStream());
+    service.handleRequest(request).whenComplete(replicator::handleResponse).join();
   }
 }

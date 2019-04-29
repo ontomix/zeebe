@@ -15,33 +15,34 @@
  */
 package io.zeebe.distributedlog.impl.replication;
 
-import static io.zeebe.logstreams.impl.log.fs.FsLogSegmentDescriptor.METADATA_LENGTH;
-
 import io.atomix.cluster.messaging.ClusterCommunicationService;
 import io.atomix.core.Atomix;
 import io.atomix.utils.serializer.Serializer;
+import io.zeebe.logstreams.impl.CompleteEventsInBlockProcessor;
+import io.zeebe.logstreams.impl.log.index.LogBlockIndex;
+import io.zeebe.logstreams.impl.log.index.LogBlockIndexContext;
 import io.zeebe.logstreams.log.LogStream;
-import io.zeebe.logstreams.spi.LogSegment;
 import io.zeebe.logstreams.spi.LogStorage;
 import io.zeebe.servicecontainer.Injector;
 import io.zeebe.servicecontainer.Service;
 import io.zeebe.servicecontainer.ServiceStartContext;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
-import java.util.stream.Collectors;
-import org.agrona.ExpandableArrayBuffer;
 import org.slf4j.LoggerFactory;
 
 public class LogReplicationService implements Service<Void> {
   private final Injector<LogStream> logStreamInjector = new Injector<>();
   private final Injector<Atomix> atomixInjector = new Injector<>();
 
+  private final CompleteEventsInBlockProcessor completeEventProcessor =
+      new CompleteEventsInBlockProcessor();
   private final Serializer serializer = Serializer.using(LogReplicationNameSpace.LOG_NAME_SPACE);
 
   private LogStream logStream;
-  public LogStorage logStorage;
+  private LogBlockIndexContext logBlockIndexContext;
+  private LogBlockIndex logBlockIndex;
+  private LogStorage logStorage;
   private ClusterCommunicationService communicationService;
 
   @Override
@@ -49,56 +50,50 @@ public class LogReplicationService implements Service<Void> {
     return null;
   }
 
+  public void setLogStream(LogStream logStream) {
+    this.logStream = logStream;
+    logBlockIndex = logStream.getLogBlockIndex();
+    logBlockIndexContext = logBlockIndex.createLogBlockIndexContext();
+    logStorage = logStream.getLogStorage();
+  }
+
   @Override
   public void start(ServiceStartContext startContext) {
-    logStream = logStreamInjector.getValue();
-    logStorage = logStream.getLogStorage();
+    setLogStream(logStreamInjector.getValue());
     communicationService = atomixInjector.getValue().getCommunicationService();
 
     communicationService.subscribe(
-        "log.replication.manifest." + logStream.getPartitionId(),
+        "log.replication." + logStream.getPartitionId(),
         serializer::decode,
-        this::handleManifestRequest,
-        (Function<LogReplicationManifestResponse, byte[]>) serializer::encode);
-    communicationService.subscribe(
-        "log.replication.file." + logStream.getPartitionId(),
-        serializer::decode,
-        this::handleFileRequest,
-        (Function<LogReplicationSegmentResponse, byte[]>) serializer::encode);
+        this::handleRequest,
+        (Function<LogReplicationResponse, byte[]>) serializer::encode);
   }
 
-  public CompletableFuture<LogReplicationManifestResponse> handleManifestRequest(
-      LogReplicationManifestRequest request) {
-    final LogReplicationManifestResponse response = new LogReplicationManifestResponse();
-    final LogSegment[] segments = logStorage.getSegments();
-    response.segments = Arrays.stream(segments).map(LogSegment::id).collect(Collectors.toList());
+  public CompletableFuture<LogReplicationResponse> handleRequest(LogReplicationRequest request) {
+    final LogReplicationResponse response = new LogReplicationResponse();
+    final ByteBuffer buffer = ByteBuffer.allocate(3000);
+    final CompletableFuture<LogReplicationResponse> future = new CompletableFuture<>();
+    long address = logBlockIndex.lookupBlockAddress(logBlockIndexContext, request.fromPosition);
 
-    return CompletableFuture.completedFuture(response);
-  }
-
-  public CompletableFuture<LogReplicationSegmentResponse> handleFileRequest(
-      LogReplicationSegmentRequest request) {
-    final LogSegment segment = logStorage.getSegment(request.id);
-    final ExpandableArrayBuffer dest = new ExpandableArrayBuffer(1024 * 1024);
-    final LogReplicationSegmentResponse response = new LogReplicationSegmentResponse();
-
-    int offset = 0;
-    int bytesRead =
-        segment.readBytes(
-            ByteBuffer.wrap(dest.byteArray(), offset, 1024 * 1024), METADATA_LENGTH + offset);
-    while (bytesRead > 0) {
-      offset += bytesRead;
-      dest.checkLimit(offset + (1024 * 1024));
-      bytesRead =
-          segment.readBytes(
-              ByteBuffer.wrap(dest.byteArray(), offset, 1024 * 1024), METADATA_LENGTH + offset);
+    if (address < 0) {
+      // position not found in index fallback to first block
+      address = logStorage.getFirstBlockAddress();
     }
 
+    final long endAddress = logStorage.read(buffer, address, completeEventProcessor);
+    if (endAddress > 0) {
+      response.fromPosition = request.fromPosition;
+      response.toPosition = completeEventProcessor.getLastReadEventPosition();
+      response.data = buffer.array();
+      LoggerFactory.getLogger("LogReplicationService")
+          .info("Replicating {} bytes", response.data.length);
+      future.complete(response);
+    } else {
+      future.completeExceptionally(
+          new IllegalStateException(String.format("Got operation result %d", endAddress)));
+    }
 
-    response.data = new byte[offset];
-    dest.getBytes(0, response.data, 0, offset);
-    LoggerFactory.getLogger("LogReplicationService").info("Replicating {} bytes", response.data.length);
-    return CompletableFuture.completedFuture(response);
+    return future;
   }
 
   public Injector<Atomix> getAtomixInjector() {
