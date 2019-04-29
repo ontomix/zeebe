@@ -57,9 +57,9 @@ public class LogReplicationServiceTest {
     request.toPosition = -1;
 
     long lastPosition = -1;
-    for (int i = 1; i <= 100; i++) {
+    for (int i = 1; i <= 100000; i++) {
       final int key = i;
-      lastPosition = logStreamWriter.writeEvent(w -> w.value(event).key(key));
+      lastPosition = logStreamWriter.tryWrite(w -> w.value(event).key(key));
 
       if (request.fromPosition < 0) {
         request.fromPosition = lastPosition;
@@ -67,6 +67,7 @@ public class LogReplicationServiceTest {
       request.toPosition = lastPosition;
     }
 
+    logStreamWriter.waitForPositionToBeAppended(lastPosition);
     request.fromPosition = 4294970176L;
     final LogstreamReplicator replicator =
         new LogstreamReplicator(
