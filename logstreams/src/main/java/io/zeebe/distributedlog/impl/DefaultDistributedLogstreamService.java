@@ -232,6 +232,8 @@ public class DefaultDistributedLogstreamService
 
   private void tryRestore() {
     logStorage.deleteAll();
+    logStorage.close();
+    logStorage.open();
 
     final MemberId memberId = raftContext.getLeader().memberId();
     final LogstreamReplicator replicator =

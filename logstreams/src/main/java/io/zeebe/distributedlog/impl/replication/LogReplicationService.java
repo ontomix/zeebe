@@ -32,6 +32,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.agrona.ExpandableArrayBuffer;
+import org.slf4j.LoggerFactory;
 
 public class LogReplicationService implements Service<Void> {
   private final Injector<LogStream> logStreamInjector = new Injector<>();
@@ -94,6 +95,7 @@ public class LogReplicationService implements Service<Void> {
     }
 
     response.data = dest.byteArray();
+    LoggerFactory.getLogger("LogReplicationService").info("Replicating {} bytes", response.data.length);
     return CompletableFuture.completedFuture(response);
   }
 

@@ -116,11 +116,11 @@ public class LogstreamReplicator implements Service<Void> {
     // write to files or logstorage
 
     final long append = logStorage.append(ByteBuffer.wrap(response.data));
-    if(append > 0) {
+    if(append >= 0) {
       LOG.info("Append success");
     }
     else {
-      LOG.info("Append failed");
+      LOG.info("Append failed , returned {}", append);
     }
   }
 
