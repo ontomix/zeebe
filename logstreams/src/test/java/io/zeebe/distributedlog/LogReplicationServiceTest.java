@@ -15,6 +15,8 @@
  */
 package io.zeebe.distributedlog;
 
+import static org.assertj.core.api.Java6Assertions.assertThat;
+
 import io.zeebe.distributedlog.impl.replication.LogReplicationSegmentRequest;
 import io.zeebe.distributedlog.impl.replication.LogReplicationService;
 import io.zeebe.logstreams.util.LogStreamRule;
@@ -46,7 +48,9 @@ public class LogReplicationServiceTest {
         .handleFileRequest(request)
         .thenAccept(
             r -> {
+              assertThat(buffer.length).isEqualTo(r.data.length);
+              assertThat(buffer).isEqualTo(r.data);
               LoggerFactory.getLogger("test").info("Test {}", r);
-            });
+            }).join();
   }
 }

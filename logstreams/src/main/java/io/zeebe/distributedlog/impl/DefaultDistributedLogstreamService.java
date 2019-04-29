@@ -219,7 +219,7 @@ public class DefaultDistributedLogstreamService
     LOG.info("Restoring log");
     if (lastPosition < backupPosition) {
       LOG.error(
-          "There are missing events in the logstream. last event in logstream is {}. backup position is {}.",
+          "There are missing events in the logstream. last event in logstream is {}. backup position is {}. Trying to recover.",
           lastPosition,
           backupPosition);
 
@@ -231,9 +231,12 @@ public class DefaultDistributedLogstreamService
   }
 
   private void tryRestore() {
+    long startTime = System.currentTimeMillis();
     logStorage.deleteAll();
-    logStorage.close();
-    logStorage.open();
+
+    // TODO: Check if the following is needed
+//    logStorage.close();
+//    logStorage.open();
 
     final MemberId memberId = raftContext.getLeader().memberId();
     final LogstreamReplicator replicator =
@@ -249,10 +252,16 @@ public class DefaultDistributedLogstreamService
         .join();
 
     final BufferedLogStreamReader reader = new BufferedLogStreamReader(logStream);
+    reader.seekToFirstEvent();
+    long firstEventPosition = reader.getPosition();
     reader.seekToLastEvent();
     lastPosition = reader.getPosition(); // position of last event which is committed
 
-    LOG.info("Recovered. new lastPosition is {}", lastPosition);
+    LOG.info(
+        "Recovered in {} ms. FirstEventPosition {}, lastEventPosition is {}",
+        System.currentTimeMillis() - startTime,
+        firstEventPosition,
+        lastPosition);
   }
 
   @Override

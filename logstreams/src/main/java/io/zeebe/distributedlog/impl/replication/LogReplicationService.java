@@ -94,7 +94,9 @@ public class LogReplicationService implements Service<Void> {
               ByteBuffer.wrap(dest.byteArray(), offset, 1024 * 1024), METADATA_LENGTH + offset);
     }
 
-    response.data = dest.byteArray();
+
+    response.data = new byte[offset];
+    dest.getBytes(0, response.data, 0, offset);
     LoggerFactory.getLogger("LogReplicationService").info("Replicating {} bytes", response.data.length);
     return CompletableFuture.completedFuture(response);
   }
