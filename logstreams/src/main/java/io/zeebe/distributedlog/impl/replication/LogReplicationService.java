@@ -80,7 +80,17 @@ public class LogReplicationService implements Service<Void> {
       address = logStorage.getFirstBlockAddress();
     }
 
-    final long endAddress = logStorage.read(buffer, address, completeEventProcessor);
+    long endAddress = address;
+
+    while (completeEventProcessor.getLastReadEventPosition() <= request.fromPosition) {
+      buffer.clear();
+      endAddress = logStorage.read(buffer, endAddress, completeEventProcessor);
+      if (endAddress < 0) {
+        future.completeExceptionally(
+            new IllegalStateException(String.format("Got operation result %d", endAddress)));
+        break;
+      }
+    }
     if (endAddress > 0) {
       response.fromPosition = request.fromPosition;
       response.toPosition = completeEventProcessor.getLastReadEventPosition();
@@ -88,9 +98,6 @@ public class LogReplicationService implements Service<Void> {
       LoggerFactory.getLogger("LogReplicationService")
           .info("Replicating {} bytes", response.data.length);
       future.complete(response);
-    } else {
-      future.completeExceptionally(
-          new IllegalStateException(String.format("Got operation result %d", endAddress)));
     }
 
     return future;

@@ -71,15 +71,17 @@ public class LogstreamReplicator implements Service<Void> {
   public void handleResponse(LogReplicationResponse response, Throwable error) {
     final DirectBuffer buffer = new UnsafeBuffer(response.data);
     int offset = 0;
-    long position = -1;
+    long position = LogEntryDescriptor.getPosition(buffer, offset);
 
-    while (position < response.fromPosition) {
-      position = LogEntryDescriptor.getPosition(buffer, offset);
+    while (position <= response.fromPosition) {
       offset += LogEntryDescriptor.getFragmentLength(buffer, offset);
+      position = LogEntryDescriptor.getPosition(buffer, offset);
     }
+
     final ByteBuffer data = ByteBuffer.wrap(response.data, offset, response.data.length - offset);
 
-    final long append = logStorage.append(data);
+    //final long append = logStorage.append(data);
+    final long append = 1;
     if (append >= 0) {
       LOG.info(
           "Appended {} (skipping position {})",
@@ -87,10 +89,10 @@ public class LogstreamReplicator implements Service<Void> {
           response.fromPosition);
       if (response.toPosition < toPosition) {
         LOG.info("Requesting again {} - {}", response.toPosition, toPosition);
-        // sendRequest(response.toPosition, toPosition).whenComplete(this::handleResponse);
+        //sendRequest(response.toPosition, toPosition).whenComplete(this::handleResponse);
       } else {
         LOG.info("Requested all of {} - {}", fromPosition, response.toPosition);
-        // startFuture.complete(null);
+        startFuture.complete(null);
       }
     } else {
       LOG.info("Append failed , returned {}", append, error);

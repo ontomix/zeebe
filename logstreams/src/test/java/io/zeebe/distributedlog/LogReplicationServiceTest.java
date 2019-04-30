@@ -57,7 +57,7 @@ public class LogReplicationServiceTest {
     request.toPosition = -1;
 
     long lastPosition = -1;
-    for (int i = 1; i <= 100000; i++) {
+    for (int i = 1; i <= 1000; i++) {
       final int key = i;
       lastPosition = logStreamWriter.tryWrite(w -> w.value(event).key(key));
 
