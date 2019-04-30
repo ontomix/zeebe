@@ -27,17 +27,18 @@ import static io.zeebe.broker.clustering.base.partitions.PartitionServiceNames.f
 import static io.zeebe.broker.clustering.base.partitions.PartitionServiceNames.leaderOpenLogStreamServiceName;
 import static io.zeebe.broker.clustering.base.partitions.PartitionServiceNames.leaderPartitionServiceName;
 import static io.zeebe.broker.clustering.base.partitions.PartitionServiceNames.partitionLeaderElectionServiceName;
+import static io.zeebe.broker.logstreams.LogStreamServiceNames.logStreamRestorationService;
 import static io.zeebe.broker.logstreams.LogStreamServiceNames.stateStorageFactoryServiceName;
 import static io.zeebe.logstreams.impl.service.LogStreamServiceNames.distributedLogPartitionServiceName;
 
 import io.atomix.cluster.messaging.ClusterEventService;
 import io.zeebe.broker.Loggers;
+import io.zeebe.broker.logstreams.LogStreamRestorationService;
 import io.zeebe.broker.logstreams.state.StateStorageFactory;
 import io.zeebe.broker.logstreams.state.StateStorageFactoryService;
 import io.zeebe.broker.system.configuration.BrokerCfg;
 import io.zeebe.distributedlog.StorageConfiguration;
 import io.zeebe.distributedlog.impl.DistributedLogstreamPartition;
-import io.zeebe.distributedlog.impl.replication.LogReplicationService;
 import io.zeebe.logstreams.impl.service.LeaderOpenLogStreamAppenderService;
 import io.zeebe.logstreams.impl.service.LogStreamServiceNames;
 import io.zeebe.logstreams.log.LogStream;
@@ -129,14 +130,12 @@ public class PartitionInstallService extends Actor
             .group(LEADERSHIP_SERVICE_GROUP)
             .install();
 
-    final LogReplicationService logReplicationService = new LogReplicationService();
-
+    final LogStreamRestorationService logStreamRestorationService =
+        new LogStreamRestorationService();
     partitionInstall
-        .createService(
-            ServiceName.newServiceName("log.replication.sender." + logName, Void.class),
-            logReplicationService)
-        .dependency(ATOMIX_SERVICE, logReplicationService.getAtomixInjector())
-        .dependency(logStreamServiceName, logReplicationService.getLogStreamInjector())
+        .createService(logStreamRestorationService(partitionId), logStreamRestorationService)
+        .dependency(ATOMIX_SERVICE, logStreamRestorationService.getAtomixInjector())
+        .dependency(logStreamServiceName, logStreamRestorationService.getLogStreamInjector())
         .install();
 
     partitionInstall.install();
@@ -159,6 +158,7 @@ public class PartitionInstallService extends Actor
         leaderElectionInstallFuture, (leaderElection, e) -> leaderElection.addListener(this));
   }
 
+  @Override
   public void onTransitionToLeader(int partitionId, long term) {
     actor.call(
         () -> {
@@ -183,6 +183,7 @@ public class PartitionInstallService extends Actor
         e -> transitionComplete.complete(null));
   }
 
+  @Override
   public void onTransitionToFollower(int partitionId) {
     actor.call(
         () -> {

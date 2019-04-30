@@ -39,6 +39,7 @@ import io.zeebe.servicecontainer.ServiceName;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
+import java.util.concurrent.Executor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,6 +50,7 @@ public class DefaultDistributedLogstreamService
   private static final Logger LOG =
       LoggerFactory.getLogger(DefaultDistributedLogstreamService.class);
 
+  private Executor executor;
   private LogStream logStream;
   private LogStorage logStorage;
   private long lastPosition;
@@ -71,6 +73,7 @@ public class DefaultDistributedLogstreamService
     super.configure(executor);
     try {
       logName = getRaftPartitionName(executor);
+      this.executor = executor;
       LOG.info(
           "Configuring {} on node {} with logName {}",
           getServiceName(),
@@ -232,7 +235,6 @@ public class DefaultDistributedLogstreamService
 
   private void tryRestore(long fromPosition, long toPosition) {
     long startTime = System.currentTimeMillis();
-    logStorage.deleteAll();
 
     // TODO: Check if the following is needed
     //    logStorage.close();

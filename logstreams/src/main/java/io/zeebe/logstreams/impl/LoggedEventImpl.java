@@ -27,10 +27,12 @@ import io.zeebe.logstreams.log.LoggedEvent;
 import io.zeebe.protocol.Protocol;
 import io.zeebe.protocol.clientapi.VarDataEncodingEncoder;
 import io.zeebe.util.buffer.BufferReader;
+import io.zeebe.util.buffer.BufferWriter;
 import org.agrona.DirectBuffer;
+import org.agrona.MutableDirectBuffer;
 
 /** Represents the implementation of the logged event. */
-public class LoggedEventImpl implements ReadableFragment, LoggedEvent {
+public class LoggedEventImpl implements ReadableFragment, LoggedEvent, BufferWriter {
 
   protected int fragmentOffset = -1;
   protected int messageOffset = -1;
@@ -173,5 +175,15 @@ public class LoggedEventImpl implements ReadableFragment, LoggedEvent {
         + ", producerId="
         + getProducerId()
         + "]";
+  }
+
+  @Override
+  public int getLength() {
+    return getFragmentLength();
+  }
+
+  @Override
+  public void write(MutableDirectBuffer buffer, int offset) {
+    buffer.putBytes(offset, this.buffer, fragmentOffset, getFragmentLength());
   }
 }

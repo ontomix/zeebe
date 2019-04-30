@@ -34,4 +34,9 @@ public class LogStreamServiceNames {
 
   public static final ServiceName<ZbStreamProcessorService> ZB_STREAM_PROCESSOR_SERVICE_NAME =
       ServiceName.newServiceName("logstreams.processor", ZbStreamProcessorService.class);
+
+  public static ServiceName<Void> logStreamRestorationService(int partitionId) {
+    return ServiceName.newServiceName(
+        String.format("logstreams.restoration-%d", partitionId), Void.class);
+  }
 }
