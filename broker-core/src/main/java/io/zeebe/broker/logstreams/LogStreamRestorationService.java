@@ -3,16 +3,22 @@ package io.zeebe.broker.logstreams;
 import io.atomix.cluster.MemberId;
 import io.atomix.cluster.messaging.ClusterCommunicationService;
 import io.atomix.core.Atomix;
+import io.zeebe.broker.logstreams.state.StateReplication;
+import io.zeebe.distributedlog.impl.replication.SnapshotPullRequestHandler;
 import io.zeebe.logstreams.impl.LoggedEventImpl;
 import io.zeebe.logstreams.log.BufferedLogStreamReader;
 import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.log.LogStreamReader;
+import io.zeebe.logstreams.state.ReplicationController;
+import io.zeebe.logstreams.state.StateStorage;
 import io.zeebe.servicecontainer.Injector;
 import io.zeebe.servicecontainer.Service;
 import io.zeebe.servicecontainer.ServiceStartContext;
 import io.zeebe.servicecontainer.ServiceStopContext;
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -29,6 +35,8 @@ public class LogStreamRestorationService implements Service<Void> {
   private Executor restoreRequestExecutor;
   private Executor eventRequestExecutor;
   private Executor snapshotRequestExecutor;
+
+  private StateStorage storage;
 
   private ClusterCommunicationService communicationService;
   private LogStream logStream;
@@ -110,6 +118,9 @@ public class LogStreamRestorationService implements Service<Void> {
 
       response.put("fromPosition", startAvailablePosition);
       response.put("toPosition", endAvailablePosition);
+      if (startAvailablePosition > fromPosition) {
+        response.put("snapshotPosition", getAvailableSnapshotPositionAfter(fromPosition));
+      }
 
       LOG.debug(
           "Notify sender that we can provide events from {} to {}",
@@ -118,6 +129,19 @@ public class LogStreamRestorationService implements Service<Void> {
       communicationService.unicast(restoreRequestTopic, response, requester);
     } else {
       LOG.debug("No events after position {} found", fromPosition);
+    }
+  }
+
+  private long getAvailableSnapshotPositionAfter(long fromPosition) {
+    final List<File> snapshots = storage.listByPositionAsc();
+
+    if (snapshots != null && !snapshots.isEmpty()) {
+      final File oldestSnapshotDirectory = snapshots.get(0);
+      final long snapshotPosition = Long.parseLong(oldestSnapshotDirectory.getName());
+      return snapshotPosition;
+    } else {
+      LOG.error("This case never happens");
+      return -1; // snapshot not available
     }
   }
 
@@ -152,9 +176,30 @@ public class LogStreamRestorationService implements Service<Void> {
     return responseFuture;
   }
 
-  private CompletableFuture<HashMap<String, Object>> handleSnapshotRequest(
+  public CompletableFuture<HashMap<String, Object>> handleSnapshotRequest(
       HashMap<String, Object> request) {
     final HashMap<String, Object> response = new HashMap<>();
+
+    long snapshotPosition = (Long) request.get("snapshotPosition");
+
+    final List<File> snapshots = storage.listByPositionAsc();
+
+    if (snapshots != null && !snapshots.isEmpty()) {
+      StateReplication replication =
+          new StateReplication(
+              atomixInjector.getValue().getEventService(),
+              logStream.getPartitionId(),
+              String.format(
+                  "restore-%d",
+                  snapshotPosition));
+
+      ReplicationController replicationController =
+          new ReplicationController(replication, storage, () -> {});
+      SnapshotPullRequestHandler replicator =
+          new SnapshotPullRequestHandler(storage, replicationController);
+
+      replicator.replicateSnapshot(snapshotPosition, snapshotRequestExecutor::execute);
+    }
     return CompletableFuture.completedFuture(response);
   }
 

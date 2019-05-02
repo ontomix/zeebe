@@ -89,4 +89,8 @@ public class StateReplication implements SnapshotReplication {
       executorService = null;
     }
   }
+
+  public String getReplicationTopic() {
+    return replicationTopic;
+  }
 }
