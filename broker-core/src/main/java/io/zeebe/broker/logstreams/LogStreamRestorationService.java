@@ -1,8 +1,8 @@
 package io.zeebe.broker.logstreams;
 
+import io.atomix.cluster.AtomixCluster;
 import io.atomix.cluster.MemberId;
 import io.atomix.cluster.messaging.ClusterCommunicationService;
-import io.atomix.core.Atomix;
 import io.zeebe.broker.logstreams.state.StateReplication;
 import io.zeebe.distributedlog.impl.replication.SnapshotPullRequestHandler;
 import io.zeebe.logstreams.impl.LoggedEventImpl;
@@ -30,20 +30,20 @@ import org.slf4j.LoggerFactory;
 public class LogStreamRestorationService implements Service<Void> {
   private static final Logger LOG = LoggerFactory.getLogger(LogStreamRestorationService.class);
   private final Injector<LogStream> logStreamInjector = new Injector<>();
-  private final Injector<Atomix> atomixInjector = new Injector<>();
+  private final Injector<AtomixCluster> atomixInjector = new Injector<>();
+  private final Injector<StateStorage> storageInjector = new Injector<>();
 
   private Executor restoreRequestExecutor;
   private Executor eventRequestExecutor;
   private Executor snapshotRequestExecutor;
 
-  private StateStorage storage;
-
   private ClusterCommunicationService communicationService;
   private LogStream logStream;
+  private StateStorage storage;
 
   @Override
   public void start(ServiceStartContext startContext) {
-    final Atomix atomix = atomixInjector.getValue();
+    final AtomixCluster atomix = atomixInjector.getValue();
 
     if (atomix == null) {
       throw new IllegalStateException("Missing atomix dependency");
@@ -54,6 +54,8 @@ public class LogStreamRestorationService implements Service<Void> {
     if (logStream == null) {
       throw new IllegalStateException("Missing log stream dependency");
     }
+
+    storage = storageInjector.getValue();
 
     createExecutors();
     subscribe();
@@ -73,7 +75,7 @@ public class LogStreamRestorationService implements Service<Void> {
     return logStreamInjector;
   }
 
-  public Injector<Atomix> getAtomixInjector() {
+  public Injector<AtomixCluster> getAtomixInjector() {
     return atomixInjector;
   }
 
@@ -185,13 +187,13 @@ public class LogStreamRestorationService implements Service<Void> {
     final List<File> snapshots = storage.listByPositionAsc();
 
     if (snapshots != null && !snapshots.isEmpty()) {
+
+      LOG.debug("Replicating snapshot at pos {}", snapshotPosition);
       StateReplication replication =
           new StateReplication(
               atomixInjector.getValue().getEventService(),
               logStream.getPartitionId(),
-              String.format(
-                  "restore-%d",
-                  snapshotPosition));
+              String.format("restore-%d", snapshotPosition));
 
       ReplicationController replicationController =
           new ReplicationController(replication, storage, () -> {});
@@ -241,5 +243,9 @@ public class LogStreamRestorationService implements Service<Void> {
 
   private String getSnapshotRequestTopic() {
     return String.format("log-restore-snapshots-%d", logStream.getPartitionId());
+  }
+
+  public Injector<StateStorage> getStorageInjector() {
+    return storageInjector;
   }
 }

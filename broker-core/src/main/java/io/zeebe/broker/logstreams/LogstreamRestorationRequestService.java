@@ -15,12 +15,11 @@
  */
 package io.zeebe.broker.logstreams;
 
+import io.atomix.cluster.AtomixCluster;
 import io.atomix.cluster.MemberId;
 import io.atomix.cluster.messaging.ClusterCommunicationService;
-import io.atomix.core.Atomix;
 import io.atomix.utils.serializer.Serializer;
 import io.zeebe.broker.logstreams.state.StateReplication;
-import io.zeebe.broker.logstreams.state.StateStorageFactory;
 import io.zeebe.distributedlog.impl.replication.LogReplicationNameSpace;
 import io.zeebe.distributedlog.impl.replication.RestoreController;
 import io.zeebe.logstreams.impl.LogEntryDescriptor;
@@ -39,7 +38,7 @@ import org.agrona.concurrent.UnsafeBuffer;
 
 public class LogstreamRestorationRequestService implements Service<Void> {
   private MemberId leader;
-  private Atomix atomix;
+  private AtomixCluster atomix;
   private final int partitionId;
   private final long toPosition;
   private final long fromPosition;
@@ -49,13 +48,12 @@ public class LogstreamRestorationRequestService implements Service<Void> {
 
   private final Serializer serializer = Serializer.using(LogReplicationNameSpace.LOG_NAME_SPACE);
 
-  private final Injector<Atomix> atomixInjector = new Injector<>();
+  private final Injector<AtomixCluster> atomixInjector = new Injector<>();
   private final LogStorage logStorage;
   private ClusterCommunicationService communicationService;
 
   private final DirectBuffer readBuffer = new UnsafeBuffer(0, 0);
-  private StateStorageFactory stateStorageFactory;
-  private final Injector<StateStorageFactory> stateStorageFactoryInjector = new Injector<>();
+  private final Injector<StateStorage> stateStorageInjector = new Injector<>();
 
   public LogstreamRestorationRequestService(
       MemberId leader, int partitionId, LogStorage logStorage, long fromPosition, long toPosition) {
@@ -66,7 +64,7 @@ public class LogstreamRestorationRequestService implements Service<Void> {
     this.toPosition = toPosition;
   }
 
-  public Injector<Atomix> getAtomixInjector() {
+  public Injector<AtomixCluster> getAtomixInjector() {
     return atomixInjector;
   }
 
@@ -132,19 +130,27 @@ public class LogstreamRestorationRequestService implements Service<Void> {
     long startAvailablePosition = (Long) response.get("fromPosition");
     if (startAvailablePosition > fromPosition) {
       Long availableSnapshotPosition = (Long) response.get("snapshotPosition");
-      String snapshotReplicationTopic =
-        String.format("replication-%d-restore-%d", partitionId, availableSnapshotPosition);
-      MemberId sender = leader; // TODO: for now assume you always send the request to the leader
-      final HashMap<String, Object> snapshotRequest = generateRequestSnapshot(
-        availableSnapshotPosition);
-      communicationService.unicast(snapshotReplicationTopic, snapshotRequest, sender);
+      replicateSnapshot(availableSnapshotPosition);
     } else {
       long endAvailablePosition = (Long) response.get("toPosition");
       // send event Request
     }
   }
 
-  public HashMap<String, Object> generateRequestSnapshot(Long availableSnapshotPosition) {
+  public CompletableFuture<Void> replicateSnapshot(long availableSnapshotPosition) {
+    final CompletableFuture<Void> restoreFuture = new CompletableFuture<>();
+
+    String snapshotReplicationTopic =
+      String.format("replication-%d-restore-%d", partitionId, availableSnapshotPosition);
+    MemberId sender = leader; // TODO: for now assume you always send the request to the leader
+    final HashMap<String, Object> snapshotRequest = generateRequestSnapshot(
+      availableSnapshotPosition, restoreFuture);
+    atomixInjector.getValue().getCommunicationService().unicast(snapshotReplicationTopic, snapshotRequest, sender);
+    return restoreFuture;
+  }
+
+  public HashMap<String, Object> generateRequestSnapshot(long availableSnapshotPosition,
+    CompletableFuture<Void> snapshotFuture) {
     // Start snapshot replication receiver
     StateReplication replication =
         new StateReplication(
@@ -152,10 +158,7 @@ public class LogstreamRestorationRequestService implements Service<Void> {
             partitionId,
             String.format("restore-%d", availableSnapshotPosition));
 
-    final StateStorage storage =
-        stateStorageFactoryInjector
-            .getValue()
-            .create(partitionId, ZbStreamProcessorService.PROCESSOR_NAME);
+    final StateStorage storage = stateStorageInjector.getValue();
 
     RestoreController replicationController = new RestoreController(replication, storage, () -> {});
     final CompletableFuture<Long> restoreFuture =
@@ -176,6 +179,8 @@ public class LogstreamRestorationRequestService implements Service<Void> {
                 storage.getSnapshotDirectoryFor(availableSnapshotPosition));
 
             replication.close();
+            startFuture.complete(null);
+            snapshotFuture.complete(null);
           } else {
             // start all over
           }
@@ -186,5 +191,9 @@ public class LogstreamRestorationRequestService implements Service<Void> {
     HashMap<String, Object> snapshotRequest = new HashMap<>();
     snapshotRequest.put("snapshotPosition", availableSnapshotPosition);
     return snapshotRequest;
+  }
+
+  public Injector<StateStorage> getStateStorageInjector() {
+    return stateStorageInjector;
   }
 }

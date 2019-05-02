@@ -15,8 +15,6 @@
  */
 package io.zeebe.distributedlog.impl;
 
-import io.atomix.cluster.MemberId;
-import io.atomix.core.Atomix;
 import io.atomix.primitive.service.AbstractPrimitiveService;
 import io.atomix.primitive.service.BackupInput;
 import io.atomix.primitive.service.BackupOutput;
@@ -35,7 +33,6 @@ import io.zeebe.logstreams.log.LogStream;
 import io.zeebe.logstreams.spi.LogStorage;
 import io.zeebe.logstreams.state.StateStorage;
 import io.zeebe.servicecontainer.ServiceContainer;
-import io.zeebe.servicecontainer.ServiceName;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
@@ -240,7 +237,7 @@ public class DefaultDistributedLogstreamService
     //    logStorage.close();
     //    logStorage.open();
 
-    final MemberId memberId = raftContext.getLeader().memberId();
+    /*final MemberId memberId = raftContext.getLeader().memberId();
     final LogstreamReplicator replicator =
         new LogstreamReplicator(memberId, partitionId, logStorage, fromPosition, toPosition);
     serviceContainer
@@ -263,7 +260,7 @@ public class DefaultDistributedLogstreamService
         "Recovered in {} ms. FirstEventPosition {}, lastEventPosition is {}",
         System.currentTimeMillis() - startTime,
         firstEventPosition,
-        lastPosition);
+        lastPosition);*/
   }
 
   @Override
