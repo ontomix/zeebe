@@ -231,7 +231,7 @@ public class DefaultDistributedLogstreamService
   }
 
   private void tryRestore(long fromPosition, long toPosition) {
-    long startTime = System.currentTimeMillis();
+    final long startTime = System.currentTimeMillis();
 
     // TODO: Check if the following is needed
     //    logStorage.close();
@@ -252,7 +252,7 @@ public class DefaultDistributedLogstreamService
 
     final BufferedLogStreamReader reader = new BufferedLogStreamReader(logStream);
     reader.seekToFirstEvent();
-    long firstEventPosition = reader.getPosition();
+    final long firstEventPosition = reader.getPosition();
     reader.seekToLastEvent();
     lastPosition = reader.getPosition(); // position of last event which is committed
 
