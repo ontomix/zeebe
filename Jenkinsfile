@@ -123,6 +123,10 @@ pipeline {
                 }
             }
         }
+
+        success {
+            build job: currentBuild.projectName, propagate: false, quietPeriod: 0, wait: false
+        }
     }
 }
 
