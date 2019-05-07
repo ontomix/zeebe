@@ -17,29 +17,24 @@
  */
 package io.zeebe.broker.subscription.command;
 
-import static io.zeebe.broker.subscription.CorrelateWorkflowInstanceSubscriptionDecoder.elementInstanceKeyNullValue;
-import static io.zeebe.broker.subscription.CorrelateWorkflowInstanceSubscriptionDecoder.messageKeyNullValue;
-import static io.zeebe.broker.subscription.CorrelateWorkflowInstanceSubscriptionDecoder.messageNameHeaderLength;
-import static io.zeebe.broker.subscription.CorrelateWorkflowInstanceSubscriptionDecoder.subscriptionPartitionIdNullValue;
-import static io.zeebe.broker.subscription.CorrelateWorkflowInstanceSubscriptionDecoder.variablesHeaderLength;
-import static io.zeebe.broker.subscription.CorrelateWorkflowInstanceSubscriptionDecoder.workflowInstanceKeyNullValue;
+import static io.zeebe.broker.subscription.ResetMessageCorrelationDecoder.correlationKeyHeaderLength;
+import static io.zeebe.broker.subscription.ResetMessageCorrelationDecoder.workflowInstanceKeyNullValue;
+import static io.zeebe.broker.subscription.ResetMessageCorrelationEncoder.elementInstanceKeyNullValue;
+import static io.zeebe.broker.subscription.ResetMessageCorrelationEncoder.messageNameHeaderLength;
+import static io.zeebe.broker.subscription.ResetMessageCorrelationEncoder.subscriptionPartitionIdNullValue;
 
-import io.zeebe.broker.subscription.CorrelateWorkflowInstanceSubscriptionDecoder;
-import io.zeebe.broker.subscription.CorrelateWorkflowInstanceSubscriptionEncoder;
+import io.zeebe.broker.subscription.ResetMessageCorrelationDecoder;
+import io.zeebe.broker.subscription.ResetMessageCorrelationEncoder;
 import io.zeebe.broker.util.SbeBufferWriterReader;
 import org.agrona.DirectBuffer;
 import org.agrona.MutableDirectBuffer;
 import org.agrona.concurrent.UnsafeBuffer;
 
-public class CorrelateWorkflowInstanceSubscriptionCommand
-    extends SbeBufferWriterReader<
-        CorrelateWorkflowInstanceSubscriptionEncoder,
-        CorrelateWorkflowInstanceSubscriptionDecoder> {
+public class ResetMessageCorrelationCommand
+    extends SbeBufferWriterReader<ResetMessageCorrelationEncoder, ResetMessageCorrelationDecoder> {
 
-  private final CorrelateWorkflowInstanceSubscriptionEncoder encoder =
-      new CorrelateWorkflowInstanceSubscriptionEncoder();
-  private final CorrelateWorkflowInstanceSubscriptionDecoder decoder =
-      new CorrelateWorkflowInstanceSubscriptionDecoder();
+  private final ResetMessageCorrelationEncoder encoder = new ResetMessageCorrelationEncoder();
+  private final ResetMessageCorrelationDecoder decoder = new ResetMessageCorrelationDecoder();
 
   private int subscriptionPartitionId;
   private long workflowInstanceKey;
@@ -47,15 +42,15 @@ public class CorrelateWorkflowInstanceSubscriptionCommand
   private long messageKey;
 
   private final UnsafeBuffer messageName = new UnsafeBuffer(0, 0);
-  private final UnsafeBuffer variables = new UnsafeBuffer(0, 0);
+  private final UnsafeBuffer correlationKey = new UnsafeBuffer(0, 0);
 
   @Override
-  protected CorrelateWorkflowInstanceSubscriptionEncoder getBodyEncoder() {
+  protected ResetMessageCorrelationEncoder getBodyEncoder() {
     return encoder;
   }
 
   @Override
-  protected CorrelateWorkflowInstanceSubscriptionDecoder getBodyDecoder() {
+  protected ResetMessageCorrelationDecoder getBodyDecoder() {
     return decoder;
   }
 
@@ -64,8 +59,8 @@ public class CorrelateWorkflowInstanceSubscriptionCommand
     return super.getLength()
         + messageNameHeaderLength()
         + messageName.capacity()
-        + variablesHeaderLength()
-        + variables.capacity();
+        + correlationKeyHeaderLength()
+        + correlationKey.capacity();
   }
 
   @Override
@@ -78,7 +73,7 @@ public class CorrelateWorkflowInstanceSubscriptionCommand
         .elementInstanceKey(elementInstanceKey)
         .messageKey(messageKey)
         .putMessageName(messageName, 0, messageName.capacity())
-        .putVariables(variables, 0, variables.capacity());
+        .putCorrelationKey(correlationKey, 0, correlationKey.capacity());
   }
 
   @Override
@@ -90,19 +85,8 @@ public class CorrelateWorkflowInstanceSubscriptionCommand
     elementInstanceKey = decoder.elementInstanceKey();
     messageKey = decoder.messageKey();
 
-    offset = decoder.limit();
-
-    offset += messageNameHeaderLength();
-    final int messageNameLength = decoder.messageNameLength();
-    messageName.wrap(buffer, offset, messageNameLength);
-    offset += messageNameLength;
-    decoder.limit(offset);
-
-    offset += variablesHeaderLength();
-    final int variablesLength = decoder.variablesLength();
-    variables.wrap(buffer, offset, variablesLength);
-    offset += variablesLength;
-    decoder.limit(offset);
+    decoder.wrapMessageName(messageName);
+    decoder.wrapCorrelationKey(correlationKey);
   }
 
   @Override
@@ -110,9 +94,9 @@ public class CorrelateWorkflowInstanceSubscriptionCommand
     subscriptionPartitionId = subscriptionPartitionIdNullValue();
     workflowInstanceKey = workflowInstanceKeyNullValue();
     elementInstanceKey = elementInstanceKeyNullValue();
-    messageKey = messageKeyNullValue();
+    messageKey = ResetMessageCorrelationDecoder.messageKeyNullValue();
     messageName.wrap(0, 0);
-    variables.wrap(0, 0);
+    correlationKey.wrap(0, 0);
   }
 
   public int getSubscriptionPartitionId() {
@@ -151,7 +135,7 @@ public class CorrelateWorkflowInstanceSubscriptionCommand
     return messageName;
   }
 
-  public DirectBuffer getVariables() {
-    return variables;
+  public DirectBuffer getCorrelationKey() {
+    return correlationKey;
   }
 }

@@ -28,18 +28,27 @@ import io.zeebe.broker.test.EmbeddedBrokerRule;
 import io.zeebe.broker.test.MsgPackConstants;
 import io.zeebe.exporter.api.record.Assertions;
 import io.zeebe.exporter.api.record.Record;
+import io.zeebe.exporter.api.record.value.DeploymentRecordValue;
 import io.zeebe.exporter.api.record.value.MessageRecordValue;
+import io.zeebe.exporter.api.record.value.deployment.DeployedWorkflow;
+import io.zeebe.model.bpmn.Bpmn;
+import io.zeebe.model.bpmn.BpmnModelInstance;
 import io.zeebe.protocol.clientapi.RecordType;
 import io.zeebe.protocol.clientapi.RejectionType;
 import io.zeebe.protocol.clientapi.ValueType;
 import io.zeebe.protocol.intent.MessageIntent;
+import io.zeebe.protocol.intent.WorkflowInstanceIntent;
+import io.zeebe.protocol.intent.WorkflowInstanceSubscriptionIntent;
 import io.zeebe.test.broker.protocol.clientapi.ClientApiRule;
 import io.zeebe.test.broker.protocol.clientapi.ExecuteCommandRequestBuilder;
 import io.zeebe.test.broker.protocol.clientapi.ExecuteCommandResponse;
 import io.zeebe.test.broker.protocol.clientapi.PartitionTestClient;
 import io.zeebe.test.util.MsgPackUtil;
+import io.zeebe.test.util.record.RecordingExporter;
+import io.zeebe.test.util.record.RecordingExporterTestWatcher;
 import org.junit.Before;
 import org.junit.ClassRule;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.RuleChain;
 
@@ -50,6 +59,8 @@ public class PublishMessageTest {
 
   @ClassRule
   public static final RuleChain RULE_CHAIN = RuleChain.outerRule(BROKER_RULE).around(API_RULE);
+
+  @Rule public RecordingExporterTestWatcher testWatcher = new RecordingExporterTestWatcher();
 
   private PartitionTestClient testClient;
 
@@ -385,6 +396,56 @@ public class PublishMessageTest {
 
     assertThatThrownBy(() -> request.sendAndAwait())
         .hasMessageContaining("Property 'timeToLive' has no valid value");
+  }
+
+  @Test
+  public void shouldCorrelateBothMessages() {
+    // given
+    publishMessage("a", "123", "");
+    publishMessage("b", "123", "");
+
+    final BpmnModelInstance twoMessages =
+        Bpmn.createExecutableProcess("process")
+            .startEvent()
+            .eventBasedGateway("split")
+            .intermediateCatchEvent(
+                "element-a", c -> c.message(m -> m.name("a").zeebeCorrelationKey("key")))
+            .intermediateCatchEvent(
+                "element-ab", c -> c.message(m -> m.name("b").zeebeCorrelationKey("key")))
+            .exclusiveGateway("merge")
+            .endEvent()
+            .moveToNode("split")
+            .intermediateCatchEvent(
+                "element-b", c -> c.message(m -> m.name("b").zeebeCorrelationKey("key")))
+            .intermediateCatchEvent(
+                "element-ba", c -> c.message(m -> m.name("a").zeebeCorrelationKey("key")))
+            .connectTo("merge")
+            .done();
+
+    final DeploymentRecordValue deploymentRecord = API_RULE.deployWorkflow(twoMessages).getValue();
+    final DeployedWorkflow workflow = deploymentRecord.getDeployedWorkflows().get(0);
+
+    // when
+    testClient.createWorkflowInstance(
+        c ->
+            c.setBpmnProcessId(workflow.getBpmnProcessId())
+                .setKey(workflow.getWorkflowKey())
+                .setVersion(workflow.getVersion())
+                .setVariables(MsgPackUtil.asMsgPack("key", "123")));
+
+    // then
+    assertThat(
+            RecordingExporter.workflowInstanceRecords(WorkflowInstanceIntent.ELEMENT_COMPLETED)
+                .withElementId("process")
+                .limit(1)
+                .getFirst())
+        .isNotNull();
+    assertThat(
+            RecordingExporter.workflowInstanceSubscriptionRecords(
+                    WorkflowInstanceSubscriptionIntent.CORRELATED)
+                .limit(2))
+        .extracting(r -> r.getValue().getMessageName())
+        .containsExactlyInAnyOrder("a", "b");
   }
 
   private ExecuteCommandResponse publishMessage(

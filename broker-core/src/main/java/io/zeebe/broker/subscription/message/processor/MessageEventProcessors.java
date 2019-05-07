@@ -75,6 +75,10 @@ public class MessageEventProcessors {
             MessageSubscriptionIntent.CLOSE,
             new CloseMessageSubscriptionProcessor(subscriptionState, subscriptionCommandSender))
         .onCommand(
+            ValueType.MESSAGE_SUBSCRIPTION,
+            MessageSubscriptionIntent.RESET,
+            new ResetMessageCorrelationProcessor(messageState, subscriptionState))
+        .onCommand(
             ValueType.MESSAGE_START_EVENT_SUBSCRIPTION,
             MessageStartEventSubscriptionIntent.OPEN,
             new OpenMessageStartEventSubscriptionProcessor(

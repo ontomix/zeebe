@@ -42,6 +42,7 @@ import io.zeebe.protocol.clientapi.RejectionType;
 import io.zeebe.protocol.impl.record.value.message.MessageRecord;
 import io.zeebe.protocol.intent.MessageIntent;
 import io.zeebe.protocol.intent.MessageSubscriptionIntent;
+import io.zeebe.util.buffer.BufferUtil;
 import org.agrona.DirectBuffer;
 import org.junit.Before;
 import org.junit.Rule;
@@ -68,7 +69,7 @@ public class MessageStreamProcessorTest {
         .thenReturn(true);
 
     when(mockSubscriptionCommandSender.correlateWorkflowInstanceSubscription(
-            anyLong(), anyLong(), any(), any()))
+            anyLong(), anyLong(), any(), anyLong(), any()))
         .thenReturn(true);
 
     when(mockSubscriptionCommandSender.closeWorkflowInstanceSubscription(
@@ -137,11 +138,14 @@ public class MessageStreamProcessorTest {
     streamProcessor.unblock();
 
     // then
+    final long messageKey =
+        rule.events().onlyMessageRecords().withIntent(MessageIntent.PUBLISHED).getFirst().getKey();
     verify(mockSubscriptionCommandSender, timeout(5_000).times(2))
         .correlateWorkflowInstanceSubscription(
             subscription.getWorkflowInstanceKey(),
             subscription.getElementInstanceKey(),
             subscription.getMessageName(),
+            messageKey,
             message.getVariables());
   }
 
@@ -167,11 +171,15 @@ public class MessageStreamProcessorTest {
     streamProcessor.unblock();
 
     // then
+    final long messageKey =
+        rule.events().onlyMessageRecords().withIntent(MessageIntent.PUBLISHED).getFirst().getKey();
+
     verify(mockSubscriptionCommandSender, timeout(5_000).times(2))
         .correlateWorkflowInstanceSubscription(
             subscription.getWorkflowInstanceKey(),
             subscription.getElementInstanceKey(),
             subscription.getMessageName(),
+            messageKey,
             message.getVariables());
   }
 
@@ -257,11 +265,15 @@ public class MessageStreamProcessorTest {
     streamProcessor.unblock();
 
     // then
+    final long messageKey =
+        rule.events().onlyMessageRecords().withIntent(MessageIntent.PUBLISHED).getFirst().getKey();
+
     verify(mockSubscriptionCommandSender, timeout(5_000).times(1))
         .correlateWorkflowInstanceSubscription(
             subscription.getWorkflowInstanceKey(),
             subscription.getElementInstanceKey(),
             subscription.getMessageName(),
+            messageKey,
             message.getVariables());
   }
 
@@ -286,11 +298,34 @@ public class MessageStreamProcessorTest {
     streamProcessor.unblock();
 
     // then
-    verify(mockSubscriptionCommandSender, timeout(5_000).times(2))
+    waitUntil(
+        () ->
+            rule.events().onlyMessageRecords().withIntent(MessageIntent.PUBLISHED).limit(2).count()
+                == 2);
+    final long firstMessageKey =
+        rule.events().onlyMessageRecords().withIntent(MessageIntent.PUBLISHED).getFirst().getKey();
+    final long lastMessageKey =
+        rule.events()
+            .onlyMessageRecords()
+            .withIntent(MessageIntent.PUBLISHED)
+            .skip(1)
+            .getFirst()
+            .getKey();
+
+    verify(mockSubscriptionCommandSender, timeout(5_000))
         .correlateWorkflowInstanceSubscription(
             subscription.getWorkflowInstanceKey(),
             subscription.getElementInstanceKey(),
             subscription.getMessageName(),
+            firstMessageKey,
+            message.getVariables());
+
+    verify(mockSubscriptionCommandSender, timeout(5_000))
+        .correlateWorkflowInstanceSubscription(
+            subscription.getWorkflowInstanceKey(),
+            subscription.getElementInstanceKey(),
+            subscription.getMessageName(),
+            lastMessageKey,
             message.getVariables());
   }
 
@@ -345,15 +380,42 @@ public class MessageStreamProcessorTest {
     final ArgumentCaptor<DirectBuffer> nameCaptor = ArgumentCaptor.forClass(DirectBuffer.class);
     final ArgumentCaptor<DirectBuffer> variablesCaptor =
         ArgumentCaptor.forClass(DirectBuffer.class);
-    verify(mockSubscriptionCommandSender, timeout(5_000).times(2))
+
+    waitUntil(
+        () ->
+            rule.events().onlyMessageRecords().withIntent(MessageIntent.PUBLISHED).limit(2).count()
+                == 2);
+    final long firstMessageKey =
+        rule.events().onlyMessageRecords().withIntent(MessageIntent.PUBLISHED).getFirst().getKey();
+    final long lastMessageKey =
+        rule.events()
+            .onlyMessageRecords()
+            .withIntent(MessageIntent.PUBLISHED)
+            .skip(1)
+            .getFirst()
+            .getKey();
+
+    verify(mockSubscriptionCommandSender, timeout(5_000))
         .correlateWorkflowInstanceSubscription(
             eq(subscription.getWorkflowInstanceKey()),
             eq(subscription.getElementInstanceKey()),
             nameCaptor.capture(),
+            eq(firstMessageKey),
             variablesCaptor.capture());
-    assertThat(nameCaptor.getValue()).isEqualTo(subscription.getMessageName());
+
+    verify(mockSubscriptionCommandSender, timeout(5_000))
+        .correlateWorkflowInstanceSubscription(
+            eq(subscription.getWorkflowInstanceKey()),
+            eq(subscription.getElementInstanceKey()),
+            nameCaptor.capture(),
+            eq(lastMessageKey),
+            variablesCaptor.capture());
+
     assertThat(variablesCaptor.getAllValues().get(0)).isEqualTo(first.getVariables());
-    assertThat(variablesCaptor.getAllValues().get(1)).isEqualTo(second.getVariables());
+    assertThat(nameCaptor.getValue()).isEqualTo(subscription.getMessageName());
+    assertThat(BufferUtil.equals(nameCaptor.getAllValues().get(1), second.getName())).isTrue();
+    assertThat(BufferUtil.equals(variablesCaptor.getAllValues().get(1), second.getVariables()))
+        .isTrue();
   }
 
   private MessageSubscriptionRecord messageSubscription() {
@@ -361,6 +423,7 @@ public class MessageStreamProcessorTest {
     subscription
         .setWorkflowInstanceKey(1L)
         .setElementInstanceKey(2L)
+        .setMessageKey(-1L)
         .setMessageName(wrapString("order canceled"))
         .setCorrelationKey(wrapString("order-123"))
         .setCloseOnCorrelate(true);
